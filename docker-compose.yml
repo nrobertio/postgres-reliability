@@ -1,0 +1,87 @@
+name: postgres-reliability
+
+services:
+  pg-primary:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: appdb
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?set REPLICATION_PASSWORD in .env}
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
+      - -c
+      - wal_keep_size=256MB
+      - -c
+      - hot_standby=on
+    volumes:
+      - primary-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      # 127.0.0.1 so the check only passes after initdb, when the real server listens on TCP
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+
+  pg-replica-1:
+    image: postgres:16.4
+    user: postgres
+    command: ["bash", "/scripts/replica-entrypoint.sh"]
+    environment:
+      PRIMARY_HOST: pg-primary
+      REPLICA_SLOT: replica_1
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?set REPLICATION_PASSWORD in .env}
+    volumes:
+      - replica1-data:/var/lib/postgresql/data
+      - ./scripts/replica-entrypoint.sh:/scripts/replica-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:5433:5432"
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+  pg-replica-2:
+    image: postgres:16.4
+    user: postgres
+    command: ["bash", "/scripts/replica-entrypoint.sh"]
+    environment:
+      PRIMARY_HOST: pg-primary
+      REPLICA_SLOT: replica_2
+      REPLICATION_USER: ${REPLICATION_USER:-replicator}
+      REPLICATION_PASSWORD: ${REPLICATION_PASSWORD:?set REPLICATION_PASSWORD in .env}
+    volumes:
+      - replica2-data:/var/lib/postgresql/data
+      - ./scripts/replica-entrypoint.sh:/scripts/replica-entrypoint.sh:ro
+    ports:
+      - "127.0.0.1:5434:5432"
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d appdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
+volumes:
+  primary-data:
+  replica1-data:
+  replica2-data:
