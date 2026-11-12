@@ -6,9 +6,9 @@ on:
 permissions:
   contents: read
 jobs:
-  replication:
+  reliability:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Lint shell scripts
@@ -16,16 +16,20 @@ jobs:
       - name: Prepare env
         run: cp .env.example .env
       - name: Validate compose
-        run: docker compose config -q
+        run: docker compose --profile restore config -q
       - name: Start cluster
-        run: docker compose up -d --wait --wait-timeout 180
+        run: docker compose up -d --build --wait --wait-timeout 240
       - name: Replication smoke test
         run: bash scripts/smoke-test.sh
+      - name: Backup and point-in-time restore test
+        run: bash scripts/restore-test.sh
       - name: Replication status
         run: bash scripts/status.sh
+      - name: Failover drill
+        run: bash scripts/failover-drill.sh
       - name: Logs on failure
         if: failure()
-        run: docker compose logs --no-color
+        run: docker compose --profile restore logs --no-color
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose --profile restore down -v
